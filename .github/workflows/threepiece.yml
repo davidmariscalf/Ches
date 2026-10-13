@@ -1,0 +1,100 @@
+name: Exhaustive three-piece retrograde audit
+on:
+  push:
+    paths:
+      - 'ches/threepiece.py'
+      - 'ches/threepiece_load.py'
+      - 'ches/chess_state.py'
+      - 'ches/threshold_cli.py'
+      - 'tests/test_threep.py'
+      - '.github/workflows/threepiece.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  threepiece:
+    strategy:
+      fail-fast: false
+      matrix:
+        piece: [queen, rook]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -e ".[test]"
+      - run: python -m pytest -q tests/test_threep.py
+      - name: Enumerate, solve and independently recheck every legal move
+        run: |
+          python -m ches.threepiece --piece ${{ matrix.piece }} --output ${{ matrix.piece }}.gz --manifest ${{ matrix.piece }}.json
+          python - <<'PY'
+          import json, os
+          piece=os.environ['PIECE']
+          data=json.load(open(piece+'.json'))
+          s=data['statistics']
+          assert s['white_wins']+s['draws']==s['legal_positions']
+          assert s['verified_successor_edges']>s['legal_positions']
+          assert s['max_mate_plies']<100
+          assert data['result']=='EXACT_THREE_PIECE_SUBGAME_ONLY'
+          print('Certified',piece,s)
+          PY
+        env:
+          PIECE: ${{ matrix.piece }}
+      - name: Reopen the binary and re-audit every legal transition
+        run: |
+          python - <<'PY'
+          import os, chess
+          from ches.threepiece_load import load_verified
+          kind=os.environ["PIECE"]
+          table=load_verified(kind+".gz",kind+".json")
+          fen = ("7k/5K2/6Q1/8/8/8/8/8 w - - 0 1" if kind=="queen"
+                 else "7k/8/6K1/8/8/8/8/R7 w - - 0 1")
+          result=table.lookup(chess.Board(fen))
+          assert result is not None and result[0]==1, result
+          print("Reaudited root",fen,"=>",result[0])
+          PY
+          if [ "${{ matrix.piece }}" = queen ]; then
+            FEN='7k/5K2/6Q1/8/8/8/8/8 w - - 0 1'
+            FLAG='--queen-table'
+          else
+            FEN='7k/8/6K1/8/8/8/8/R7 w - - 0 1'
+            FLAG='--rook-table'
+          fi
+          python -m ches.threshold_cli search --fen "$FEN" --depth 0 "$FLAG" "${{ matrix.piece }}.gz" "${{ matrix.piece }}.json" --out "${{ matrix.piece }}-proof.json"
+          python -m ches.threshold_cli verify "${{ matrix.piece }}-proof.json" "$FLAG" "${{ matrix.piece }}.gz" "${{ matrix.piece }}.json"
+          python - <<'PY'
+          import json, os
+          d=json.load(open(os.environ["PIECE"]+"-proof.json"))
+          assert d["certificate"]["bounds"]==[1,1]
+          assert d["certificate"]["proofs"][0]["witness"]["type"]=="oracle"
+          print("Certified WDL leaf integrated with adversarial threshold solver")
+          PY
+        env:
+          PIECE: ${{ matrix.piece }}
+      - name: Propagate a KQK win back through a four-piece capture
+        if: ${{ matrix.piece == 'queen' }}
+        run: |
+          python -m ches.threshold_cli search --fen '7k/5K2/6Q1/6r1/8/8/8/8 w - - 0 1' --depth 1 --queen-table queen.gz queen.json --out fourpiece-to-kqk.json
+          python -m ches.threshold_cli verify fourpiece-to-kqk.json --queen-table queen.gz queen.json
+          python - <<'PY'
+          import json
+          data=json.load(open('fourpiece-to-kqk.json'))
+          assert data["certificate"]["bounds"]==[1,1], data["certificate"]["bounds"]
+          proof=data["certificate"]["proofs"][0]["witness"]
+          assert proof["type"]=="choice" and proof["action"]=="g6g5", proof
+          assert proof["child"]["type"]=="oracle", proof["child"]
+          print("FOUR_PIECE_WHITE_WIN_BACKWARD_PROPAGATION_PASS")
+          PY
+      - name: Archive compressed table, complete hash manifest and audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: chess-exact-3piece-${{ matrix.piece }}
+          path: |
+            ${{ matrix.piece }}.gz
+            ${{ matrix.piece }}.json
+            ${{ matrix.piece }}-proof.json
+            fourpiece-to-kqk.json
+          retention-days: 14

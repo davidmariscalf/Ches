@@ -31,11 +31,12 @@ class TerminalDraw:
 
 
 class ChessState:
-    def __init__(self, board: chess.Board, tablebase=None):
+    def __init__(self, board: chess.Board, tablebase=None, threepiece_tables=None):
         if not board.is_valid():
             raise ValueError("Invalid orthodox chess position")
         self.board = board
         self.tablebase = tablebase
+        self.threepiece_tables = threepiece_tables or {}
 
     @property
     def turn_white(self) -> bool:
@@ -65,10 +66,16 @@ class ChessState:
             return TerminalDraw()
         child = self.board.copy(stack=True)
         child.push_uci(action)
-        return ChessState(child, self.tablebase)
+        return ChessState(child, self.tablebase, self.threepiece_tables)
 
     def oracle_value(self) -> tuple[int, str] | None:
         board = self.board
+        # Prefer endgames whose complete legal-transition graphs were locally
+        # regenerated and checked, rather than an externally trusted WDL file.
+        for audited in self.threepiece_tables.values():
+            leaf = audited.lookup(board)
+            if leaf is not None:
+                return leaf
         if (self.tablebase is None
                 or len(board.piece_map()) > 7
                 or board.halfmove_clock != 0
@@ -90,7 +97,7 @@ class ChessState:
         return value, "syzygy-wdl-trusted-50move"
 
 
-def replay(root_fen: str, uci_moves: list[str], tablebase=None) -> ChessState:
+def replay(root_fen: str, uci_moves: list[str], tablebase=None, threepiece_tables=None) -> ChessState:
     board = chess.Board(root_fen, chess960=False)
     if not board.is_valid():
         raise ValueError("Bad root FEN")
@@ -104,4 +111,4 @@ def replay(root_fen: str, uci_moves: list[str], tablebase=None) -> ChessState:
         board.push_uci(uci)  # Raises if illegal.
         if not board.is_valid():
             raise ValueError("Move generated invalid board")
-    return ChessState(board, tablebase)
+    return ChessState(board, tablebase, threepiece_tables)
