@@ -1,0 +1,53 @@
+name: Adversarial finite-horizon mate certificates
+on:
+  push:
+    paths:
+      - 'ches/mate_horizon.py'
+      - 'tests/test_mate_horizon.py'
+      - '.github/workflows/mate-horizon.yml'
+  pull_request:
+    paths:
+      - 'ches/mate_horizon.py'
+      - 'tests/test_mate_horizon.py'
+      - '.github/workflows/mate-horizon.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-finite-horizon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]"
+      - run: python -m pytest -q tests/test_mate_horizon.py
+      - name: Reproduce 1.e4 e5 no forced White mate in 3 further plies
+        run: |
+          python - <<'PY'
+          import chess
+          from ches.chess_state import replay
+          from ches.mate_horizon import search,verify,NO_MATE
+          p=replay(chess.STARTING_FEN,["e2e4","e7e5"])
+          r=search(p,attacker="white",plies=3,max_nodes=10000)
+          assert r.status==NO_MATE
+          assert verify(p,r.certificate,attacker="white",plies=3)==NO_MATE
+          print("CERTIFIED",r.status,"visited",r.visited,
+                "all White second moves covered",
+                len(r.certificate["children"]))
+          PY
+      - name: Reproduce root finite mate refutation within 5 plies
+        run: |
+          python - <<'PY'
+          import chess
+          from ches.chess_state import replay
+          from ches.mate_horizon import search,verify,NO_MATE
+          p=replay(chess.STARTING_FEN,[])
+          r=search(p,attacker="white",plies=5,max_nodes=50000)
+          assert r.status==NO_MATE
+          assert verify(p,r.certificate,attacker="white",plies=5)==NO_MATE
+          print("CERTIFIED",r.status,"from orthodox start, horizon 5 plies",
+                "visited",r.visited,"branches",len(r.certificate["children"]))
+          PY
