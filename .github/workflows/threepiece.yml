@@ -3,6 +3,9 @@ on:
   push:
     paths:
       - 'ches/threepiece.py'
+      - 'ches/threepiece_load.py'
+      - 'ches/chess_state.py'
+      - 'ches/threshold_cli.py'
       - 'tests/test_threep.py'
       - '.github/workflows/threepiece.yml'
   workflow_dispatch:
@@ -40,6 +43,37 @@ jobs:
           PY
         env:
           PIECE: ${{ matrix.piece }}
+      - name: Reopen the binary and re-audit every legal transition
+        run: |
+          python - <<'PY'
+          import os, chess
+          from ches.threepiece_load import load_verified
+          kind=os.environ["PIECE"]
+          table=load_verified(kind+".gz",kind+".json")
+          fen = ("7k/5K2/6Q1/8/8/8/8/8 w - - 0 1" if kind=="queen"
+                 else "7k/8/6K1/8/8/8/8/R7 w - - 0 1")
+          result=table.lookup(chess.Board(fen))
+          assert result is not None and result[0]==1, result
+          print("Reaudited root",fen,"=>",result[0])
+          PY
+          if [ "${{ matrix.piece }}" = queen ]; then
+            FEN='7k/5K2/6Q1/8/8/8/8/8 w - - 0 1'
+            FLAG='--queen-table'
+          else
+            FEN='7k/8/6K1/8/8/8/8/R7 w - - 0 1'
+            FLAG='--rook-table'
+          fi
+          python -m ches.threshold_cli search --fen "$FEN" --depth 0 "$FLAG" "${{ matrix.piece }}.gz" "${{ matrix.piece }}.json" --out "${{ matrix.piece }}-proof.json"
+          python -m ches.threshold_cli verify "${{ matrix.piece }}-proof.json" "$FLAG" "${{ matrix.piece }}.gz" "${{ matrix.piece }}.json"
+          python - <<'PY'
+          import json, os
+          d=json.load(open(os.environ["PIECE"]+"-proof.json"))
+          assert d["certificate"]["bounds"]==[1,1]
+          assert d["certificate"]["proofs"][0]["witness"]["type"]=="oracle"
+          print("Certified WDL leaf integrated with adversarial threshold solver")
+          PY
+        env:
+          PIECE: ${{ matrix.piece }}
       - name: Archive compressed table, complete hash manifest and audit
         uses: actions/upload-artifact@v4
         with:
@@ -47,4 +81,5 @@ jobs:
           path: |
             ${{ matrix.piece }}.gz
             ${{ matrix.piece }}.json
+            ${{ matrix.piece }}-proof.json
           retention-days: 14
