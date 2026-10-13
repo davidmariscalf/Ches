@@ -74,6 +74,20 @@ jobs:
           PY
         env:
           PIECE: ${{ matrix.piece }}
+      - name: Propagate a KQK win back through a four-piece capture
+        if: ${{ matrix.piece == 'queen' }}
+        run: |
+          python -m ches.threshold_cli search --fen '7k/5K2/6Q1/6r1/8/8/8/8 w - - 0 1' --depth 1 --queen-table queen.gz queen.json --out fourpiece-to-kqk.json
+          python -m ches.threshold_cli verify fourpiece-to-kqk.json --queen-table queen.gz queen.json
+          python - <<'PY'
+          import json
+          data=json.load(open('fourpiece-to-kqk.json'))
+          assert data["certificate"]["bounds"]==[1,1], data["certificate"]["bounds"]
+          proof=data["certificate"]["proofs"][0]["witness"]
+          assert proof["type"]=="choice" and proof["action"]=="g6g5", proof
+          assert proof["child"]["type"]=="oracle", proof["child"]
+          print("FOUR_PIECE_WHITE_WIN_BACKWARD_PROPAGATION_PASS")
+          PY
       - name: Archive compressed table, complete hash manifest and audit
         uses: actions/upload-artifact@v4
         with:
@@ -82,4 +96,5 @@ jobs:
             ${{ matrix.piece }}.gz
             ${{ matrix.piece }}.json
             ${{ matrix.piece }}-proof.json
+            fourpiece-to-kqk.json
           retention-days: 14
