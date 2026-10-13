@@ -40,6 +40,20 @@ jobs:
           assert p['unknown_leaves']==400
           print('Ordinary starting chess has no exact outcome certificate: PASS')
           PY
+      - name: Independently verify selective AND/OR outcome witnesses
+        run: |
+          python -m ches.threshold_cli search --fen '7k/Q7/8/6K1/8/8/8/1R6 w - - 0 1' --depth 1 --nodes-per-threshold 1000 --out selective-mate.json
+          python -m ches.threshold_cli verify selective-mate.json
+          python -m ches.threshold_cli search --depth 2 --nodes-per-threshold 1000 --out selective-initial.json
+          python -m ches.threshold_cli verify selective-initial.json
+          python - <<'PY'
+          import json
+          m=json.load(open('selective-mate.json'))
+          s=json.load(open('selective-initial.json'))
+          assert m['certificate']['bounds']==[1,1] and len(m['certificate']['proofs'])>=1
+          assert s['certificate']['bounds']==[-1,1] and len(s['certificate']['proofs'])==0
+          print('Selective AND/OR proof and honest UNKNOWN: PASS')
+          PY
       - name: Archive reproducible JSON certificates
         if: always()
         uses: actions/upload-artifact@v4
@@ -52,3 +66,5 @@ jobs:
             mate-summary.json
             initial.json
             root-summary.json
+            selective-mate.json
+            selective-initial.json
