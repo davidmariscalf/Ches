@@ -14,6 +14,7 @@ test = ["pytest>=8,<10"]
 
 [project.scripts]
 ches-proof = "ches.cli:run"
+ches-selective = "ches.threshold_cli:run"
 
 [tool.setuptools.packages.find]
 include = ["ches*"]
