@@ -15,15 +15,16 @@ def test_roundtrip_injective_piece_positions():
                     assert unpack(pack(wk,extra,bk,turn)) == (wk,extra,bk,turn)
 
 
-@pytest.mark.parametrize("piece, extra, claimed", [
-    ("queen",chess.G7, True),
-    ("rook",chess.H7, True)
+@pytest.mark.parametrize("piece, wk, extra", [
+    ("queen",chess.F7,chess.G7),
+    ("rook",chess.G6,chess.A8)
 ])
-def test_valid_threepiece_terminal_mate(piece,extra,claimed):
-    p=position(pack(chess.F7,extra,chess.H8,chess.BLACK), PIECE_TYPES[piece])
+def test_valid_threepiece_terminal_mate(piece,wk,extra):
+    # Both pieces must be protected, and EVERY Black escape square covered.
+    p=position(pack(wk,extra,chess.H8,chess.BLACK), PIECE_TYPES[piece])
     assert p.is_valid()
-    assert p.is_checkmate() is claimed
-    assert successors(p,chess.F7,extra,chess.H8)==[]
+    assert p.is_checkmate()
+    assert successors(p,wk,extra,chess.H8)==[]
 
 
 def test_rook_capture_is_draw_transition():
