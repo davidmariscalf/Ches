@@ -126,7 +126,7 @@ def solve(piece: str) -> Table:
         for dst in children:
             if dst == CAPTURE_DRAW:
                 continue
-            if status[dst] != UNRESOLVED:
+            if status[dst] not in (UNRESOLVED, WHITE_WIN):
                 raise AssertionError("Transition outside enumerated legal states")
             if predecessors[dst] is None:
                 predecessors[dst] = [idx]
