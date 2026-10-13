@@ -11,6 +11,7 @@ import chess.syzygy
 
 from .chess_state import replay
 from .threshold import certify_bounds, verify_bounds
+from .threepiece_load import load_verified
 
 
 def run(argv: list[str] | None = None):
@@ -27,13 +28,22 @@ def run(argv: list[str] | None = None):
     v.add_argument("certificate")
     for cmd in (s, v):
         cmd.add_argument("--syzygy-dir")
+        cmd.add_argument("--queen-table", nargs=2, metavar=("DATA_GZ","MANIFEST_JSON"))
+        cmd.add_argument("--rook-table", nargs=2, metavar=("DATA_GZ","MANIFEST_JSON"))
     args = p.parse_args(argv)
 
     ctx = (closing(chess.syzygy.open_tablebase(args.syzygy_dir))
            if args.syzygy_dir else nullcontext(None))
     with ctx as tb:
+        threepiece = {}
+        for piece, files in (("queen", args.queen_table), ("rook", args.rook_table)):
+            if files is not None:
+                obj = load_verified(*files)
+                if obj.piece != piece:
+                    raise ValueError("Three-piece table file does not match requested piece")
+                threepiece[piece] = obj
         if args.action == "search":
-            root = replay(args.fen, args.moves, tb)
+            root = replay(args.fen, args.moves, tb, threepiece)
             result = certify_bounds(root, depth=args.depth,
                                     max_nodes_per_attempt=args.nodes_per_threshold)
             proof = {"bounds": [result.lower, result.upper],
@@ -62,7 +72,7 @@ def run(argv: list[str] | None = None):
         packet = json.loads(Path(args.certificate).read_text(encoding="utf-8"))
         if packet.get("format") != "ches-selective-v1":
             raise ValueError("Unsupported certificate format")
-        root = replay(packet["root_fen"], packet["moves"], tb)
+        root = replay(packet["root_fen"], packet["moves"], tb, threepiece)
         bounds = verify_bounds(root, packet["certificate"])
         print(json.dumps({"verified": True, "bounds": list(bounds),
                           "exact": bounds[0] == bounds[1]}))
